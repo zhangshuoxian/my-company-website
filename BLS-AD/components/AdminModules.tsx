@@ -5,16 +5,9 @@ import { useLanguage } from '../context/LanguageContext';
 import { DatabaseService } from '../services/db';
 import { TechSpec, CategoryItem, NewsItem, HistoryEvent, CertificateItem, DownloadItem, Branch, PatternSpec, SocialItem, CustomPageData, CompanyStat, ContactInfo } from '../types';
 import { CODE_DEFINITIONS } from '../constants';
-// 🟢 这一步非常关键！请完整替换顶部的图标引入
-import { 
-    Trash2, Plus, Edit, X, ChevronRight, ChevronDown, ChevronLeft, Upload, 
-    Layers, FileText, Mail, Table, Image as ImageIcon, LayoutDashboard, 
-    Share2, ClipboardList, ListTree, History, ShieldCheck, DownloadCloud, 
-    RefreshCw, ArrowRight, Building2, MapPin, Phone, Printer, CheckCircle, 
-    Globe, 
-    // 👇 这些是你之前底部删掉后缺失的图标，必须补在这里！
-    User, Lock, Unlock, Shield, Clock, LogOut, Users, AlertTriangle
-} from 'lucide-react';
+import { Trash2, Plus, Edit, X, ChevronRight, ChevronDown, ChevronLeft, Upload, Layers, FileText, Mail, Table, Image as ImageIcon, LayoutDashboard, Share2, ClipboardList, ListTree, History, ShieldCheck, DownloadCloud, RefreshCw, ArrowRight, Building2, MapPin, Phone, Printer, CheckCircle, Globe , User, Lock, Unlock, Shield, Clock, LogOut, Users } from 'lucide-react';
+// 👇 确保引入了 useAuth (如果没有请在顶部加上)
+import { useAuth } from '../context/AuthContext';
 // --- UI 工具: 文件上传组件 ---
 const FileUploader = ({ onUpload, hint, sizeLimit = 2048 }: { onUpload: (base64: string) => void, hint?: string, sizeLimit?: number }) => {
     const fileInput = useRef<HTMLInputElement>(null);
@@ -223,9 +216,6 @@ export const HomeEditor = ({ showToast }: any) => {
     );
 };
 
-// 3. 技术参数录入 (双语智能同步版 + 行业自动关联)
-// 3. 技术参数录入 (双语智能同步版 + 批量导入导出)
-// 3. 技术参数录入 (左侧导航布局 + 批量导入导出)
 // 3. 技术参数录入 (全功能版：含14项新增属性 + 批量导入)
 export const TechSpecEditor = ({ labels, showToast, adminLanguage }: any) => {
     const { content, addTechSpec, updateTechSpec, deleteTechSpec, updateIndustry } = useLanguage();
@@ -766,7 +756,6 @@ export const IndustryEditor = ({ showToast }: any) => {
     );
 };
 
-// 6. 花纹代号管理 (双语同步版)
 // 6. 花纹代号管理 (修复重复代号导致的搜索卡死 Bug)
 export const PatternEditor = ({ showToast }: any) => {
     const { content, addPattern, updatePattern, deletePattern } = useLanguage();
@@ -944,6 +933,7 @@ export const PatternEditor = ({ showToast }: any) => {
         </div>
     );
 };
+
 // 7. 公司介绍管理 (双语同步版 - 防崩溃版)
 // 7. 公司介绍管理 (修复图片上传 & 增加历程图片)
 export const IntroManager = ({ showToast }: any) => {
@@ -1276,7 +1266,6 @@ export const IntroManager = ({ showToast }: any) => {
         </div>
     );
 };
-
 // 8. 特殊产品详情 (PU同步带/圆带 - 双语同步版)
 export const CustomPageEditor = ({ showToast }: any) => {
     const { content, updateCustomPage } = useLanguage();
@@ -1455,7 +1444,6 @@ export const MiscEditor = ({ showToast }: any) => {
     const [editingNewsId, setEditingNewsId] = useState<string | null>(null);
     const [newsDataCN, setNewsDataCN] = useState<NewsItem>({} as NewsItem);
     const [newsDataEN, setNewsDataEN] = useState<NewsItem>({} as NewsItem);
-    // ... (在 newsDataEN 定义之后插入) ...
 
     // 1. 总部信息状态
     const [contactDual, setContactDual] = useState<{CN: ContactInfo, EN: ContactInfo} | null>(null);
@@ -1483,6 +1471,54 @@ export const MiscEditor = ({ showToast }: any) => {
     }, [subTab]);
 
     if (!content) return null;
+
+    const startEditNews = async (item: NewsItem) => {
+        setEditingNewsId(item.id);
+        try {
+            const dbCN = await DatabaseService.getContent('CN');
+            const dbEN = await DatabaseService.getContent('EN');
+            const nCN = dbCN?.news.find(n => n.id === item.id);
+            const nEN = dbEN?.news.find(n => n.id === item.id);
+            setNewsDataCN(nCN || item);
+            setNewsDataEN(nEN || item);
+        } catch(e) { console.error(e); }
+    };
+
+    const startAddNews = () => {
+        setEditingNewsId('new_news');
+        const empty = { id: Date.now().toString(), title: '', date: new Date().toISOString().split('T')[0], summary: '', content: '', image: '' };
+        setNewsDataCN(empty);
+        setNewsDataEN(empty);
+    };
+
+    const saveNews = async () => {
+        const id = editingNewsId === 'new_news' ? newsDataCN.id : editingNewsId!;
+        try {
+            const dbCN = await DatabaseService.getContent('CN');
+            const dbEN = await DatabaseService.getContent('EN');
+            if(!dbCN || !dbEN) return;
+
+            const updateList = (db: any, data: NewsItem) => {
+                const idx = db.news.findIndex((n: any) => n.id === id);
+                // 强制共用图片和日期
+                const finalData = { ...data, id, date: newsDataCN.date, image: newsDataCN.image };
+                if (idx > -1) db.news[idx] = finalData;
+                else db.news.unshift(finalData); // 新闻插在最前
+            };
+
+            updateList(dbCN, newsDataCN);
+            updateList(dbEN, newsDataEN);
+
+            await DatabaseService.saveContent('CN', dbCN);
+            await DatabaseService.saveContent('EN', dbEN);
+
+            if(editingNewsId === 'new_news') addNews(newsDataCN);
+            else updateNews(id, newsDataCN);
+
+            showToast('双语新闻已保存');
+            setEditingNewsId(null);
+        } catch(e) { showToast('保存失败', 'error'); }
+    };
 
     // --- 逻辑 A: 总部信息保存 (双语) ---
     const saveContact = async () => {
@@ -1585,54 +1621,6 @@ export const MiscEditor = ({ showToast }: any) => {
             
             setEditingSocialId(null); 
             showToast('社交信息已保存');
-        } catch(e) { showToast('保存失败', 'error'); }
-    };
-
-    const startEditNews = async (item: NewsItem) => {
-        setEditingNewsId(item.id);
-        try {
-            const dbCN = await DatabaseService.getContent('CN');
-            const dbEN = await DatabaseService.getContent('EN');
-            const nCN = dbCN?.news.find(n => n.id === item.id);
-            const nEN = dbEN?.news.find(n => n.id === item.id);
-            setNewsDataCN(nCN || item);
-            setNewsDataEN(nEN || item);
-        } catch(e) { console.error(e); }
-    };
-
-    const startAddNews = () => {
-        setEditingNewsId('new_news');
-        const empty = { id: Date.now().toString(), title: '', date: new Date().toISOString().split('T')[0], summary: '', content: '', image: '' };
-        setNewsDataCN(empty);
-        setNewsDataEN(empty);
-    };
-
-    const saveNews = async () => {
-        const id = editingNewsId === 'new_news' ? newsDataCN.id : editingNewsId!;
-        try {
-            const dbCN = await DatabaseService.getContent('CN');
-            const dbEN = await DatabaseService.getContent('EN');
-            if(!dbCN || !dbEN) return;
-
-            const updateList = (db: any, data: NewsItem) => {
-                const idx = db.news.findIndex((n: any) => n.id === id);
-                // 强制共用图片和日期
-                const finalData = { ...data, id, date: newsDataCN.date, image: newsDataCN.image };
-                if (idx > -1) db.news[idx] = finalData;
-                else db.news.unshift(finalData); // 新闻插在最前
-            };
-
-            updateList(dbCN, newsDataCN);
-            updateList(dbEN, newsDataEN);
-
-            await DatabaseService.saveContent('CN', dbCN);
-            await DatabaseService.saveContent('EN', dbEN);
-
-            if(editingNewsId === 'new_news') addNews(newsDataCN);
-            else updateNews(id, newsDataCN);
-
-            showToast('双语新闻已保存');
-            setEditingNewsId(null);
         } catch(e) { showToast('保存失败', 'error'); }
     };
 
@@ -1811,7 +1799,6 @@ export const MiscEditor = ({ showToast }: any) => {
         </div>
     );
 };
-
 // 10. 页面文案管理 (副标题 & Slogan)
 export const TextContentEditor = ({ showToast }: any) => {
     // 状态：存储中英文数据
@@ -1948,9 +1935,6 @@ export const TextContentEditor = ({ showToast }: any) => {
     );
 };
 
-// ... (其他 imports 保持不变)
-// 👇 确保引入了 useAuth (如果没有请在顶部加上)
-import { useAuth } from '../context/AuthContext';
 
 // 11. 超级管理员用户管理 (新增)
 export const UserManagement = ({ showToast }: any) => {

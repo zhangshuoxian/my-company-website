@@ -1,11 +1,11 @@
-
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Section, SectionTitle } from '../components/Section';
 import { useLanguage } from '../context/LanguageContext';
 import { Calendar, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export const NewsList = () => {
+// 👇 1. 去掉这里的 export，只定义组件
+const NewsList = () => {
   const { content } = useLanguage();
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -81,7 +81,8 @@ export const NewsList = () => {
   );
 };
 
-export const NewsDetail = () => {
+// 👇 2. 同样去掉这里的 export
+const NewsDetail = () => {
   const { content } = useLanguage();
   const { id } = useParams<{ id: string }>();
   const news = content.news.find(n => n.id === id);
@@ -109,3 +110,7 @@ export const NewsDetail = () => {
     </Section>
   );
 };
+
+// 👇 3. 关键修改：在这里统一导出
+export { NewsDetail }; // 具名导出详情页
+export default NewsList; // 默认导出列表页 (这样 import News 就能用了)

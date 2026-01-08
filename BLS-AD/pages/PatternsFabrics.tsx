@@ -4,7 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { IMAGES } from '../constants';
 import { ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Reveal } from '../components/Reveal'; // 引入动画组件
+import { Reveal } from '../components/Reveal';
 
 const PatternsFabrics = () => {
   const { content, tData } = useLanguage();
@@ -24,7 +24,6 @@ const PatternsFabrics = () => {
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
-  // 动画方向计算
   const getAnimDir = (idx: number, cols: number) => {
     const pos = idx % cols;
     if (pos === 0) return 'left';
@@ -34,8 +33,8 @@ const PatternsFabrics = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Sticky Sibling Nav */}
-      <div className="sticky top-24 z-30 bg-white/95 backdrop-blur-sm shadow-md border-b border-gray-200">
+      {/* 顶部导航：已移除 sticky, top-24, z-30 */}
+      <div className="bg-white border-b border-gray-200">
         <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col md:flex-row justify-between items-center">
              

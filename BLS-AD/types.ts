@@ -315,6 +315,20 @@ export interface SiteContent {
   };
 }
 
+// 3. 补充 Content 接口 (把这些字段加到你现有的 Content 接口里)
+export interface Content {
+  // ... 你原有的 labels, nav, home 等字段 ...
+
+  // 👇 新增：技术参数列表 (ModelRules.tsx 用)
+  techSpecs: any[]; // 如果你有 TechSpec 接口，最好替换 any
+  
+  // 👇 新增：花纹列表 (PatternsFabrics.tsx 用)
+  patterns: PatternItem[];
+
+  // 👇 新增：自定义页面数据 (PU Timing Belts 等页面用)
+  customPages: Record<string, CustomPageData>;
+}
+
 // --- 用户权限系统 ---
 
 export type UserRole = 'super_admin' | 'sub_admin';
