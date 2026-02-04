@@ -6,18 +6,25 @@ import { Slider } from '../components/Slider';
 export const About: React.FC = () => {
   const { data, t } = useAppContext();
   const [activeInfo, setActiveInfo] = useState<number>(0);
-  const [activeHonorsIdx, setActiveHonorsIdx] = useState(0);
+  // ▼▼▼▼▼▼ 修改开始：改用 activeSlideIdx 控制顶部轮播 ▼▼▼▼▼▼
+  const [activeSlideIdx, setActiveSlideIdx] = useState(0); 
   const carouselTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!data.honors || data.honors.length === 0) return;
+    // 1. 检查新的 aboutSlides 数据是否存在
+    const slides = data.aboutSlides || [];
+    if (slides.length === 0) return;
+
     carouselTimerRef.current = window.setInterval(() => {
-      setActiveHonorsIdx(prev => (prev + 1) % data.honors.length);
+      // 2. 循环长度也改成 slides.length
+      setActiveSlideIdx(prev => (prev + 1) % slides.length);
     }, 4000);
+
     return () => {
       if (carouselTimerRef.current) clearInterval(carouselTimerRef.current);
     }
-  }, [data.honors.length]);
+  }, [data.aboutSlides?.length]); // 依赖项也改成这个
+  // ▲▲▲▲▲▲ 修改结束 ▲▲▲▲▲▲
 
   return (
     <div className="bg-white overflow-hidden text-gray-900">
@@ -49,31 +56,36 @@ export const About: React.FC = () => {
           </div>
         </div>
 
+        {/* ▼▼▼▼▼▼ 修改开始：顶部大图区域读取 aboutSlides ▼▼▼▼▼▼ */}
         <div className="flex flex-col gap-6 reveal reveal-right delay-300">
           <div className="aspect-[16/10] rounded-[3rem] overflow-hidden shadow-2xl border-[10px] border-white bg-gray-50">
-            {data.honors[activeHonorsIdx] && (
+            {/* 1. 安全获取当前图片 */}
+            {(data.aboutSlides || [])[activeSlideIdx] && (
               <img 
-                src={data.honors[activeHonorsIdx].image} 
-                alt="Main" 
+                src={(data.aboutSlides || [])[activeSlideIdx].image} 
+                alt="About Slide" 
                 className="w-full h-full object-cover transition-all duration-1000 transform hover:scale-105" 
               />
             )}
           </div>
+          
           <div className="grid grid-cols-4 gap-5">
-            {data.honors.slice(0, 4).map((h, i) => (
+            {/* 2. 缩略图列表也改成 aboutSlides */}
+            {(data.aboutSlides || []).slice(0, 4).map((slide, i) => (
               <button 
-                key={h.id} 
+                key={slide.id} 
                 onClick={() => {
-                   setActiveHonorsIdx(i);
+                   setActiveSlideIdx(i);
                    if (carouselTimerRef.current) clearInterval(carouselTimerRef.current);
                 }}
-                className={`aspect-square rounded-2xl overflow-hidden border-4 transition-all duration-500 transform ${activeHonorsIdx === i ? 'border-blue-600 scale-110 shadow-lg' : 'border-transparent opacity-40 hover:opacity-100'}`}
+                className={`aspect-square rounded-2xl overflow-hidden border-4 transition-all duration-500 transform ${activeSlideIdx === i ? 'border-blue-600 scale-110 shadow-lg' : 'border-transparent opacity-40 hover:opacity-100'}`}
               >
-                <img src={h.image} alt="" className="w-full h-full object-cover" />
+                <img src={slide.image} alt="" className="w-full h-full object-cover" />
               </button>
             ))}
           </div>
         </div>
+        {/* ▲▲▲▲▲▲ 修改结束 ▲▲▲▲▲▲ */}
       </section>
 
       {/* 2. 发展历程 (背景大图) */}

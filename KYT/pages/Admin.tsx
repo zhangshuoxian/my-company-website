@@ -4,10 +4,22 @@ import { useAppContext } from '../AppContext';
 import { useNavigate } from 'react-router-dom';
 import { 
   Save, ArrowLeft, Image as ImageIcon, Layout, Info, Package, Newspaper, Mail, Plus, Trash2,
-  CheckCircle, Edit2, X, PlusCircle, AlertCircle, MessageSquare, Phone, MapPin, Printer, Check, Layers, History, Award, Star, List , LogOut , Grid, Type
+  CheckCircle, Edit2, X, PlusCircle, AlertCircle, MessageSquare, Phone, MapPin, Printer, Check, Layers, History, Award, Star, List , LogOut , Grid, Type, ArrowUp, ArrowDown  // 👈 新增这两个
 } from 'lucide-react';
 import { NewsItem, Product, CustomTableData } from '../types';
 
+// 引入阿里云 SDK
+import OSS from 'ali-oss';
+
+// --- 阿里云 OSS 配置 (请填入第一步里你记下来的信息) ---
+const client = new OSS({
+  region: 'oss-cn-hongkong', // 你的Bucket所在区域，比如 oss-cn-hangzhou (注意没有 .aliyuncs.com)
+  accessKeyId: 'LTAI5tLxUE3rnFddJ69hJdS1',
+  accessKeySecret: 'RkFvzh75UhKtzEAHxUqA1ni48nSWUh',
+  bucket: 'kangyitai-data', // 你创建的 Bucket 名字
+  secure: true, // 使用 HTTPS
+});
+// ------------------------------------------------
 
 
 // --- 新增：智能文本框组件 (SmartTextarea) ---
@@ -201,11 +213,53 @@ export const Admin: React.FC = () => {
   
   const [editingNews, setEditingNews] = useState<NewsItem | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ show: true, msg, type });
     setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
   };
+
+  // ▼▼▼▼▼▼▼▼▼▼ 请复制这一整段代码，粘贴到 showToast 下面 ▼▼▼▼▼▼▼▼▼▼
+
+  // 1. 定义上传函数 (之前缺失的那个)
+  const uploadImageToOSS = async (file: File): Promise<string> => {
+    try {
+      // client 是文件最上面定义的那个阿里云连接对象
+      const filename = `images/${Date.now()}_${Math.floor(Math.random() * 1000)}.${file.name.split('.').pop()}`;
+      const result = await client.put(filename, file);
+      
+      let url = result.url;
+      if (url.startsWith('http://')) {
+        url = url.replace('http://', 'https://');
+      }
+      console.log('✅ 上传成功:', url);
+      return url;
+    } catch (e) {
+      console.error('❌ 上传失败:', e);
+      throw e;
+    }
+  };
+
+  // 2. 修改后的总指挥函数 (调用上面的函数)
+  const simulateUpload = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        showToast(lang === 'zh' ? '正在上传图片到阿里云...' : 'Uploading to OSS...', 'success');
+        
+        // 现在这里就能找到 uploadImageToOSS 了！
+        const ossUrl = await uploadImageToOSS(file);
+        
+        callback(ossUrl);
+        showToast(lang === 'zh' ? '✅ 图片上传成功' : 'Upload success');
+      } catch (error) {
+        console.error(error);
+        showToast(lang === 'zh' ? '❌ 图片上传失败' : 'Upload failed', 'error');
+      }
+    }
+  };
+  // ▲▲▲▲▲▲▲▲▲▲ 粘贴结束 ▲▲▲▲▲▲▲▲▲▲
 
   /**
    * 图片压缩逻辑 - 保持以节省 localStorage 空间
@@ -248,6 +302,25 @@ export const Admin: React.FC = () => {
     });
   };
 
+  // --- 新增：产品排序移动函数 ---
+  const moveProduct = (index: number, direction: 'up' | 'down') => {
+    // 1. 获取当前产品列表
+    const newProducts = [...(data.products || [])];
+    
+    // 2. 边界检查（如果是第一个就不能上移，如果是最后一个就不能下移）
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === newProducts.length - 1) return;
+
+    // 3. 计算目标位置
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    // 4. 交换位置 (Magic!)
+    [newProducts[index], newProducts[targetIndex]] = [newProducts[targetIndex], newProducts[index]];
+
+    // 5. 保存更新
+    handleUpdate('products', newProducts);
+  };
+
   const handleUpdate = (path: string, value: any) => {
     try {
       const newData = JSON.parse(JSON.stringify(data));
@@ -265,18 +338,7 @@ export const Admin: React.FC = () => {
     }
   };
 
-  const simulateUpload = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressedUrl = await compressImage(file);
-        callback(compressedUrl);
-        showToast(lang === 'zh' ? '图片处理成功' : 'Image processed');
-      } catch (error) {
-        showToast(lang === 'zh' ? '图片处理失败' : 'Image processing failed', 'error');
-      }
-    }
-  };
+
 
   const menu = [
     { id: 'base', label: '基础设置', icon: Layout },
@@ -288,12 +350,27 @@ export const Admin: React.FC = () => {
     { id: 'messages', label: '留言查看', icon: MessageSquare },
   ];
 
-  const globalSave = () => {
+  const globalSave = async () => {
     try {
+      showToast('正在同步到阿里云...', 'success');
+
+      // 1. 把当前数据转成文件对象
+      const jsonString = JSON.stringify(data);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+
+      // 2. 上传到阿里云 OSS
+      // 'site_data.json' 是保存在云端的文件名
+      const result = await client.put('site_data.json', blob);
+
+      console.log('阿里云上传成功:', result);
+      showToast(lang === 'zh' ? '✅ 已同步到阿里云' : 'Synced to Aliyun');
+      
+      // 本地也存一份备用
       localStorage.setItem('site_data', JSON.stringify(data));
-      showToast(lang === 'zh' ? '配置已保存到本地存储' : 'Configuration saved locally');
+
     } catch (e) {
-      showToast(lang === 'zh' ? '存储空间已满' : 'Storage full', 'error');
+      console.error(e);
+      showToast(lang === 'zh' ? '❌ 同步失败，请检查控制台' : 'Sync failed', 'error');
     }
   };
 
@@ -349,163 +426,258 @@ export const Admin: React.FC = () => {
         </header>
 
         <div className="bg-white rounded-3xl shadow-sm border border-gray-200 p-10">
-{/* 1. 基础设置 */}
-{activeTab === 'base' && (
-            <div className="space-y-10 max-w-3xl">
-               <div className="space-y-4">
-                  <label className="block text-sm font-bold text-gray-700 uppercase">公司 Logo</label>
-                  <div className="flex items-center gap-8">
-                    <img src={data.logo} className="h-16 p-3 border rounded-xl bg-gray-50" alt="Logo" />
-                    <label className="bg-blue-50 text-blue-600 px-5 py-2.5 rounded-xl cursor-pointer font-bold border border-blue-200 hover:bg-blue-100 transition-all">
-                      上传 Logo
-                      <input type="file" className="hidden" accept="image/*" onChange={(e) => simulateUpload(e, (url) => handleUpdate('logo', url))} />
-                    </label>
-                  </div>
-               </div>
-               
-               <div className="space-y-4">
-                  <label className="block text-sm font-bold text-gray-500 uppercase">公司名称</label>
-                  <div className="grid grid-cols-2 gap-6">
-                    <input value={data.companyName.zh} onChange={e => handleUpdate('companyName.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="中文名称" />
-                    <input value={data.companyName.en} onChange={e => handleUpdate('companyName.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="English Name" />
-                  </div>
-               </div>
-
-               <div className="space-y-4">
-                  <label className="block text-sm font-bold text-gray-500 uppercase">页脚版权信息</label>
-                  <div className="grid grid-cols-2 gap-6">
-                    <input value={data.copyright.zh} onChange={e => handleUpdate('copyright.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="中文版权" />
-                    <input value={data.copyright.en} onChange={e => handleUpdate('copyright.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="English Copyright" />
-                  </div>
-               </div>
-
-               {/* 关注我们设置 (已包含双语) */}
-               <div className="space-y-4 pt-6 border-t border-gray-100">
-                  <label className="block text-sm font-bold text-gray-700 uppercase">页脚 "关注我们" 设置</label>
-                  <div className="flex items-center gap-8 mb-4">
-                    <div className="flex flex-col items-center gap-2">
-                       <img src={data.followUs.qrCode} className="w-24 h-24 p-2 border rounded-xl bg-gray-50 object-contain" alt="QR Code" />
-                       <span className="text-xs text-gray-400">二维码</span>
-                    </div>
-                    <label className="bg-blue-50 text-blue-600 px-5 py-2.5 rounded-xl cursor-pointer font-bold border border-blue-200 hover:bg-blue-100 transition-all">
-                      更换二维码
-                      <input type="file" className="hidden" accept="image/*" onChange={(e) => simulateUpload(e, (url) => handleUpdate('followUs.qrCode', url))} />
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-6">
-                    <input value={data.followUs.text.zh} onChange={e => handleUpdate('followUs.text.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="提示文案 (中文)" />
-                    <input value={data.followUs.text.en} onChange={e => handleUpdate('followUs.text.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="Prompt Text (EN)" />
-                 </div>
-               </div>
-            </div>
-          )}
-
-{/* 2. 首页模块 */}
-{activeTab === 'home' && (
-            <div className="space-y-12">
-               {/* 轮播图部分保持不变... (省略代码以节省篇幅，这部分之前已经是双语了) */}
-               <section className="space-y-6">
-                  {/* ... 轮播图代码保持原样 ... */}
-                   <div className="flex justify-between items-center border-b pb-2">
-                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ImageIcon size={20}/> 首页轮播图</h3>
-                    <button onClick={() => handleUpdate('heroSlides', [...data.heroSlides, { id: Date.now().toString(), image: 'https://via.placeholder.com/1920x800', title: { zh: '新标题', en: 'New Title' }, desc: { zh: '新描述', en: 'New Desc' } }])} className="text-sm font-bold text-blue-600 flex items-center gap-1"><PlusCircle size={16}/> 新增</button>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    {data.heroSlides.map((slide, i) => (
-                      <div key={slide.id} className="p-6 bg-gray-50 rounded-2xl border relative flex flex-col md:flex-row gap-6">
-                         <button onClick={() => handleUpdate('heroSlides', data.heroSlides.filter(s => s.id !== slide.id))} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
-                         <div className="w-48 aspect-video rounded-xl overflow-hidden relative group shrink-0">
-                            <img src={slide.image} className="w-full h-full object-cover" />
-                            <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity text-xs font-bold text-center p-2">
-                               更换背景 <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => { const n = [...data.heroSlides]; n[i].image = url; handleUpdate('heroSlides', n); })} />
-                            </label>
-                         </div>
-                         <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input value={slide.title.zh} onChange={e => { const n = [...data.heroSlides]; n[i].title.zh = e.target.value; handleUpdate('heroSlides', n); }} className="p-3 border rounded-xl" placeholder="标题 (ZH)" />
-                            <input value={slide.title.en} onChange={e => { const n = [...data.heroSlides]; n[i].title.en = e.target.value; handleUpdate('heroSlides', n); }} className="p-3 border rounded-xl" placeholder="Title (EN)" />
-                            <SmartTextarea 
-                              value={slide.desc.zh} 
-                              onChange={e => { const n = [...data.heroSlides]; n[i].desc.zh = e.target.value; handleUpdate('heroSlides', n); }} 
-                              className="p-3 border rounded-xl" 
-                              placeholder="描述 (ZH)" 
-                              rows={2} 
-                            />
-                            <SmartTextarea 
-                              value={slide.desc.en} 
-                              onChange={e => { const n = [...data.heroSlides]; n[i].desc.en = e.target.value; handleUpdate('heroSlides', n); }} 
-                              className="p-3 border rounded-xl" 
-                              placeholder="Desc (EN)" 
-                              rows={2} 
-                            />
-                         </div>
-                      </div>
-                    ))}
-                  </div>
-               </section>
-
-               <section className="space-y-6">
-                  <h3 className="font-bold text-lg text-gray-800 border-b pb-2 flex items-center gap-2"><Layers size={20}/> 实验室欢迎板块</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-gray-50 p-6 rounded-2xl">
-                     <div className="space-y-4">
-                        <label className="block text-sm font-bold text-gray-500">主图</label>
-                        <div className="relative aspect-video rounded-2xl overflow-hidden border">
-                           <img src={data.labSection.image} className="w-full h-full object-cover" />
-                           <label className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity font-bold">
-                              更换图片 <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => handleUpdate('labSection.image', url))} />
-                           </label>
-                        </div>
-                     </div>
-                     <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-2">
-                           <input value={data.labSection.title.zh} onChange={e => handleUpdate('labSection.title.zh', e.target.value)} className="w-full p-3 border rounded-xl font-bold" placeholder="标题 (ZH)" />
-                           <input value={data.labSection.title.en} onChange={e => handleUpdate('labSection.title.en', e.target.value)} className="w-full p-3 border rounded-xl font-bold" placeholder="Title (EN)" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                           <textarea value={data.labSection.desc.zh} onChange={e => handleUpdate('labSection.desc.zh', e.target.value)} className="w-full p-3 border rounded-xl" rows={4} placeholder="描述 (ZH)" />
-                           <textarea value={data.labSection.desc.en} onChange={e => handleUpdate('labSection.desc.en', e.target.value)} className="w-full p-3 border rounded-xl" rows={4} placeholder="Desc (EN)" />
+          {/* 1. 基础设置 */}
+          {activeTab === 'base' && (
+                      <div className="space-y-10 max-w-3xl">
+                        <div className="space-y-4">
+                            <label className="block text-sm font-bold text-gray-700 uppercase">公司 Logo</label>
+                            <div className="flex items-center gap-8">
+                              <img src={data.logo} className="h-16 p-3 border rounded-xl bg-gray-50" alt="Logo" />
+                              <label className="bg-blue-50 text-blue-600 px-5 py-2.5 rounded-xl cursor-pointer font-bold border border-blue-200 hover:bg-blue-100 transition-all">
+                                上传 Logo
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => simulateUpload(e, (url) => handleUpdate('logo', url))} />
+                              </label>
+                            </div>
                         </div>
                         
-                        <div className="grid grid-cols-2 gap-4">
-                           {data.labSection.stats.map((s, idx) => (
-                             <div key={idx} className="bg-white p-3 rounded-xl border space-y-2">
-                               <input value={s.value} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].value = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full font-bold text-blue-600 border-b mb-1 text-center" placeholder="数字" />
-                               <input value={s.label.zh} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].label.zh = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full text-xs text-center border-b bg-gray-50 mb-1" placeholder="标签 (ZH)" />
-                               <input value={s.label.en} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].label.en = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full text-xs text-center bg-gray-50" placeholder="Label (EN)" />
-                             </div>
-                           ))}
-                        </div>
-                     </div>
-                  </div>
-               </section>
+                        <div className="space-y-4">
+                            {/* ▼▼▼▼▼▼ 新增：浏览器标题 & 语言设置 ▼▼▼▼▼▼ */}
+                            <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100 space-y-6">
+                              <h4 className="font-bold text-purple-800 flex items-center gap-2">🌐 网站全局配置</h4>
 
-               <section className="space-y-6">
-                  <h3 className="font-bold text-lg text-gray-800 border-b pb-2 flex items-center gap-2"><Star size={20}/> “为什么选择我们”板块</h3>
-                  <div className="bg-gray-50 p-6 rounded-2xl space-y-6">
-                     <div className="flex items-center gap-6">
-                        <img src={data.whyChooseUs.centerImage} className="w-24 h-24 rounded-full border-4 border-white shadow-sm" />
-                        <label className="bg-white px-4 py-2 border rounded-xl cursor-pointer text-sm font-bold hover:bg-gray-100">
-                           更换中心图
-                           <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => handleUpdate('whyChooseUs.centerImage', url))} />
-                        </label>
-                     </div>
-                     <div className="grid grid-cols-1 gap-4">
-                        {data.whyChooseUs.points.map((p, i) => (
-                           <div key={i} className="p-4 bg-white rounded-xl border grid grid-cols-1 md:grid-cols-2 gap-4 shadow-sm">
-                              <div>
-                                 <input value={p.title.zh} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].title.zh = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 border-b font-bold mb-2" placeholder="标题 (ZH)" />
-                                 <textarea value={p.desc.zh} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].desc.zh = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 text-sm text-gray-500 bg-gray-50 rounded" rows={2} placeholder="描述 (ZH)" />
+                              {/* ▼▼▼▼▼▼ 新增：加载页面文案设置 ▼▼▼▼▼▼ */}
+                                <div className="space-y-3 pt-6 border-t border-purple-100">
+                                    <label className="block text-sm font-bold text-gray-600 uppercase">加载页面 (Loading) 欢迎语</label>
+                                    <div className="grid grid-cols-1 gap-4">
+                                      <div>
+                                        <span className="text-xs text-gray-400 mb-1 block">中文提示语</span>
+                                        <input 
+                                          value={data.loadingText?.zh || ''} 
+                                          onChange={e => handleUpdate('loadingText.zh', e.target.value)} 
+                                          className="w-full p-3 border rounded-xl outline-none focus:border-purple-500" 
+                                          placeholder="例如: 数据加载中..."
+                                        />
+                                      </div>
+                                      <div>
+                                        <span className="text-xs text-gray-400 mb-1 block">英文提示语 (English)</span>
+                                        <input 
+                                          value={data.loadingText?.en || ''} 
+                                          onChange={e => handleUpdate('loadingText.en', e.target.value)} 
+                                          className="w-full p-3 border rounded-xl outline-none focus:border-purple-500" 
+                                          placeholder="e.g. Loading..."
+                                        />
+                                      </div>
+                                    </div>
+                                </div>
+                              {/* ▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲ */}
+                              
+                              {/* 1. 浏览器标题设置 */}
+                              <div className="space-y-3">
+                                  <label className="block text-sm font-bold text-gray-600 uppercase">浏览器标签页标题后缀</label>
+                                  <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                      <span className="text-xs text-gray-400 mb-1 block">中文后缀 (例如: 广东康以泰...)</span>
+                                      <input 
+                                        value={data.siteTitleSuffix?.zh || ''} 
+                                        onChange={e => handleUpdate('siteTitleSuffix.zh', e.target.value)} 
+                                        className="w-full p-3 border rounded-xl outline-none focus:border-purple-500" 
+                                      />
+                                    </div>
+                                    <div>
+                                      <span className="text-xs text-gray-400 mb-1 block">英文后缀 (例如: Kangyitai Tech...)</span>
+                                      <input 
+                                        value={data.siteTitleSuffix?.en || ''} 
+                                        onChange={e => handleUpdate('siteTitleSuffix.en', e.target.value)} 
+                                        className="w-full p-3 border rounded-xl outline-none focus:border-purple-500" 
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-gray-400">效果预览：首页 - {data.siteTitleSuffix?.zh}</p>
                               </div>
-                              <div>
-                                 <input value={p.title.en} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].title.en = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 border-b font-bold mb-2" placeholder="Title (EN)" />
-                                 <textarea value={p.desc.en} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].desc.en = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 text-sm text-gray-500 bg-gray-50 rounded" rows={2} placeholder="Desc (EN)" />
+
+                              {/* 2. 默认语言设置 */}
+                              <div className="space-y-3">
+                                  <label className="block text-sm font-bold text-gray-600 uppercase">网站默认打开语言</label>
+                                  <div className="flex gap-4">
+                                    <button 
+                                      onClick={() => handleUpdate('defaultLang', 'zh')}
+                                      className={`px-6 py-2 rounded-lg font-bold border transition-all ${data.defaultLang === 'zh' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-500 border-gray-200 hover:border-purple-300'}`}
+                                    >
+                                      🇨🇳 中文 (Chinese)
+                                    </button>
+                                    <button 
+                                      onClick={() => handleUpdate('defaultLang', 'en')}
+                                      className={`px-6 py-2 rounded-lg font-bold border transition-all ${data.defaultLang === 'en' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-500 border-gray-200 hover:border-purple-300'}`}
+                                    >
+                                      🇺🇸 英文 (English)
+                                    </button>
+                                  </div>
                               </div>
-                           </div>
-                        ))}
-                     </div>
-                  </div>
-               </section>
-            </div>
-          )}
+                            </div>
+                            {/* ▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲ */}
+                            <label className="block text-sm font-bold text-gray-500 uppercase">公司名称</label>
+                            <div className="grid grid-cols-2 gap-6">
+                              <input value={data.companyName.zh} onChange={e => handleUpdate('companyName.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="中文名称" />
+                              <input value={data.companyName.en} onChange={e => handleUpdate('companyName.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="English Name" />
+                            </div>
+                        </div>
+                        {/* ▼▼▼▼▼▼▼▼▼▼ 新增：公司简称编辑框 ▼▼▼▼▼▼▼▼▼▼ */}
+                          <div className="space-y-4">
+                            <label className="block text-sm font-bold text-gray-500 uppercase text-blue-600">公司简称 (手机端显示)</label>
+                            <div className="grid grid-cols-2 gap-6">
+                              <input 
+                                // 注意：这里加了 || '' 防止旧数据没有这个字段导致报错
+                                value={data.companyNameShort?.zh || ''} 
+                                onChange={e => handleUpdate('companyNameShort.zh', e.target.value)} 
+                                className="w-full p-3 border rounded-xl outline-none focus:border-blue-500 bg-blue-50/50" 
+                                placeholder="例如: 康以泰" 
+                              />
+                              <input 
+                                value={data.companyNameShort?.en || ''} 
+                                onChange={e => handleUpdate('companyNameShort.en', e.target.value)} 
+                                className="w-full p-3 border rounded-xl outline-none focus:border-blue-500 bg-blue-50/50" 
+                                placeholder="e.g. KYT" 
+                              />
+                            </div>
+                            <p className="text-xs text-gray-400">提示：当手机屏幕太窄时，会自动隐藏上面的长名称，只显示这个简称。</p>
+                          </div>
+                          {/* ▲▲▲▲▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲▲▲▲▲ */}
+
+                        <div className="space-y-4">
+                            <label className="block text-sm font-bold text-gray-500 uppercase">页脚版权信息</label>
+                            <div className="grid grid-cols-2 gap-6">
+                              <input value={data.copyright.zh} onChange={e => handleUpdate('copyright.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="中文版权" />
+                              <input value={data.copyright.en} onChange={e => handleUpdate('copyright.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="English Copyright" />
+                            </div>
+                        </div>
+
+                        {/* 关注我们设置 (已包含双语) */}
+                        <div className="space-y-4 pt-6 border-t border-gray-100">
+                            <label className="block text-sm font-bold text-gray-700 uppercase">页脚 "关注我们" 设置</label>
+                            <div className="flex items-center gap-8 mb-4">
+                              <div className="flex flex-col items-center gap-2">
+                                <img src={data.followUs.qrCode} className="w-24 h-24 p-2 border rounded-xl bg-gray-50 object-contain" alt="QR Code" />
+                                <span className="text-xs text-gray-400">二维码</span>
+                              </div>
+                              <label className="bg-blue-50 text-blue-600 px-5 py-2.5 rounded-xl cursor-pointer font-bold border border-blue-200 hover:bg-blue-100 transition-all">
+                                更换二维码
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => simulateUpload(e, (url) => handleUpdate('followUs.qrCode', url))} />
+                              </label>
+                            </div>
+                            <div className="grid grid-cols-2 gap-6">
+                              <input value={data.followUs.text.zh} onChange={e => handleUpdate('followUs.text.zh', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="提示文案 (中文)" />
+                              <input value={data.followUs.text.en} onChange={e => handleUpdate('followUs.text.en', e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="Prompt Text (EN)" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+          {/* 2. 首页模块 */}
+          {activeTab === 'home' && (
+                      <div className="space-y-12">
+                        {/* 轮播图部分保持不变... (省略代码以节省篇幅，这部分之前已经是双语了) */}
+                        <section className="space-y-6">
+                            {/* ... 轮播图代码保持原样 ... */}
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><ImageIcon size={20}/> 首页轮播图</h3>
+                              <button onClick={() => handleUpdate('heroSlides', [...data.heroSlides, { id: Date.now().toString(), image: 'https://via.placeholder.com/1920x800', title: { zh: '新标题', en: 'New Title' }, desc: { zh: '新描述', en: 'New Desc' } }])} className="text-sm font-bold text-blue-600 flex items-center gap-1"><PlusCircle size={16}/> 新增</button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-4">
+                              {data.heroSlides.map((slide, i) => (
+                                <div key={slide.id} className="p-6 bg-gray-50 rounded-2xl border relative flex flex-col md:flex-row gap-6">
+                                  <button onClick={() => handleUpdate('heroSlides', data.heroSlides.filter(s => s.id !== slide.id))} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>
+                                  <div className="w-48 aspect-video rounded-xl overflow-hidden relative group shrink-0">
+                                      <img src={slide.image} className="w-full h-full object-cover" />
+                                      <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity text-xs font-bold text-center p-2">
+                                        更换背景 <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => { const n = [...data.heroSlides]; n[i].image = url; handleUpdate('heroSlides', n); })} />
+                                      </label>
+                                  </div>
+                                  <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <input value={slide.title.zh} onChange={e => { const n = [...data.heroSlides]; n[i].title.zh = e.target.value; handleUpdate('heroSlides', n); }} className="p-3 border rounded-xl" placeholder="标题 (ZH)" />
+                                      <input value={slide.title.en} onChange={e => { const n = [...data.heroSlides]; n[i].title.en = e.target.value; handleUpdate('heroSlides', n); }} className="p-3 border rounded-xl" placeholder="Title (EN)" />
+                                      <SmartTextarea 
+                                        value={slide.desc.zh} 
+                                        onChange={e => { const n = [...data.heroSlides]; n[i].desc.zh = e.target.value; handleUpdate('heroSlides', n); }} 
+                                        className="p-3 border rounded-xl" 
+                                        placeholder="描述 (ZH)" 
+                                        rows={2} 
+                                      />
+                                      <SmartTextarea 
+                                        value={slide.desc.en} 
+                                        onChange={e => { const n = [...data.heroSlides]; n[i].desc.en = e.target.value; handleUpdate('heroSlides', n); }} 
+                                        className="p-3 border rounded-xl" 
+                                        placeholder="Desc (EN)" 
+                                        rows={2} 
+                                      />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                        </section>
+
+                        <section className="space-y-6">
+                            <h3 className="font-bold text-lg text-gray-800 border-b pb-2 flex items-center gap-2"><Layers size={20}/> 实验室欢迎板块</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-gray-50 p-6 rounded-2xl">
+                              <div className="space-y-4">
+                                  <label className="block text-sm font-bold text-gray-500">主图</label>
+                                  <div className="relative aspect-video rounded-2xl overflow-hidden border">
+                                    <img src={data.labSection.image} className="w-full h-full object-cover" />
+                                    <label className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity font-bold">
+                                        更换图片 <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => handleUpdate('labSection.image', url))} />
+                                    </label>
+                                  </div>
+                              </div>
+                              <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input value={data.labSection.title.zh} onChange={e => handleUpdate('labSection.title.zh', e.target.value)} className="w-full p-3 border rounded-xl font-bold" placeholder="标题 (ZH)" />
+                                    <input value={data.labSection.title.en} onChange={e => handleUpdate('labSection.title.en', e.target.value)} className="w-full p-3 border rounded-xl font-bold" placeholder="Title (EN)" />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <textarea value={data.labSection.desc.zh} onChange={e => handleUpdate('labSection.desc.zh', e.target.value)} className="w-full p-3 border rounded-xl" rows={4} placeholder="描述 (ZH)" />
+                                    <textarea value={data.labSection.desc.en} onChange={e => handleUpdate('labSection.desc.en', e.target.value)} className="w-full p-3 border rounded-xl" rows={4} placeholder="Desc (EN)" />
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 gap-4">
+                                    {data.labSection.stats.map((s, idx) => (
+                                      <div key={idx} className="bg-white p-3 rounded-xl border space-y-2">
+                                        <input value={s.value} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].value = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full font-bold text-blue-600 border-b mb-1 text-center" placeholder="数字" />
+                                        <input value={s.label.zh} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].label.zh = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full text-xs text-center border-b bg-gray-50 mb-1" placeholder="标签 (ZH)" />
+                                        <input value={s.label.en} onChange={e => { const ns = [...data.labSection.stats]; ns[idx].label.en = e.target.value; handleUpdate('labSection.stats', ns); }} className="w-full text-xs text-center bg-gray-50" placeholder="Label (EN)" />
+                                      </div>
+                                    ))}
+                                  </div>
+                              </div>
+                            </div>
+                        </section>
+
+                        <section className="space-y-6">
+                            <h3 className="font-bold text-lg text-gray-800 border-b pb-2 flex items-center gap-2"><Star size={20}/> “为什么选择我们”板块</h3>
+                            <div className="bg-gray-50 p-6 rounded-2xl space-y-6">
+                              <div className="flex items-center gap-6">
+                                  <img src={data.whyChooseUs.centerImage} className="w-24 h-24 rounded-full border-4 border-white shadow-sm" />
+                                  <label className="bg-white px-4 py-2 border rounded-xl cursor-pointer text-sm font-bold hover:bg-gray-100">
+                                    更换中心图
+                                    <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => handleUpdate('whyChooseUs.centerImage', url))} />
+                                  </label>
+                              </div>
+                              <div className="grid grid-cols-1 gap-4">
+                                  {data.whyChooseUs.points.map((p, i) => (
+                                    <div key={i} className="p-4 bg-white rounded-xl border grid grid-cols-1 md:grid-cols-2 gap-4 shadow-sm">
+                                        <div>
+                                          <input value={p.title.zh} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].title.zh = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 border-b font-bold mb-2" placeholder="标题 (ZH)" />
+                                          <textarea value={p.desc.zh} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].desc.zh = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 text-sm text-gray-500 bg-gray-50 rounded" rows={2} placeholder="描述 (ZH)" />
+                                        </div>
+                                        <div>
+                                          <input value={p.title.en} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].title.en = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 border-b font-bold mb-2" placeholder="Title (EN)" />
+                                          <textarea value={p.desc.en} onChange={e => { const ns = [...data.whyChooseUs.points]; ns[i].desc.en = e.target.value; handleUpdate('whyChooseUs.points', ns); }} className="w-full p-2 text-sm text-gray-500 bg-gray-50 rounded" rows={2} placeholder="Desc (EN)" />
+                                        </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                        </section>
+                      </div>
+                    )}
 
           {/* 3. 关于与历史 */}
           {activeTab === 'about' && (
@@ -549,6 +721,48 @@ export const Admin: React.FC = () => {
                     ))}
                   </div>
                </section>
+               {/* ▼▼▼▼▼▼▼▼▼▼ 新增：关于我们-顶部轮播图管理 ▼▼▼▼▼▼▼▼▼▼ */}
+               <section className="space-y-6">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                      <ImageIcon size={20}/> 顶部环境/团队轮播图
+                    </h3>
+                    <button 
+                      onClick={() => handleUpdate('aboutSlides', [...(data.aboutSlides || []), { id: `as${Date.now()}`, image: 'https://via.placeholder.com/800x600' }])} 
+                      className="text-sm font-bold text-blue-600 flex items-center gap-1 hover:bg-blue-50 px-3 py-1 rounded-lg"
+                    >
+                      <PlusCircle size={16}/> 新增图片
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    {(data.aboutSlides || []).map((slide, i) => (
+                      <div key={slide.id} className="group relative aspect-[16/10] bg-gray-100 rounded-xl overflow-hidden border shadow-sm">
+                         <img src={slide.image} className="w-full h-full object-cover" />
+                         
+                         {/* 悬浮操作层 */}
+                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3 transition-all">
+                            <label className="bg-white text-blue-600 px-3 py-1.5 rounded-lg cursor-pointer text-xs font-bold hover:bg-blue-50">
+                               更换图片
+                               <input type="file" className="hidden" accept="image/*" onChange={e => simulateUpload(e, url => { const ns = [...data.aboutSlides]; ns[i].image = url; handleUpdate('aboutSlides', ns); })} />
+                            </label>
+                            <button 
+                              onClick={() => handleUpdate('aboutSlides', data.aboutSlides.filter(s => s.id !== slide.id))} 
+                              className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600"
+                            >
+                              删除
+                            </button>
+                         </div>
+                      </div>
+                    ))}
+                    {(data.aboutSlides || []).length === 0 && (
+                      <div className="col-span-full text-center py-8 text-gray-400 bg-gray-50 border-2 border-dashed rounded-xl">
+                        暂无图片，请点击右上角新增
+                      </div>
+                    )}
+                  </div>
+               </section>
+               {/* ▲▲▲▲▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲▲▲▲▲ */}
 
                <section className="space-y-6">
                   <div className="flex justify-between items-center border-b pb-2">
@@ -600,6 +814,25 @@ export const Admin: React.FC = () => {
                {!editingProduct ? (
                  <>
                    <div className="flex justify-between items-center mb-8">
+                      {/* ▼▼▼▼▼▼ 新增：产品系列(分类)管理区域 ▼▼▼▼▼▼ */}
+                      <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100 mb-8 space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-bold text-blue-800 flex items-center gap-2">📂 产品系列管理 (点击修改)</h4>
+                          <button onClick={() => handleUpdate('productSeries', [...(data.productSeries||[]), { id: `s${Date.now()}`, name: { zh: '新系列', en: 'New Series' } }])} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700">+ 新增系列</button>
+                        </div>
+                        <div className="flex flex-wrap gap-4">
+                          {(data.productSeries || []).map((series, idx) => (
+                            <div key={series.id} className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border shadow-sm group">
+                                <div className="flex flex-col gap-1 w-24">
+                                  <input value={series.name.zh} onChange={e => { const ns = [...(data.productSeries||[])]; ns[idx].name.zh = e.target.value; handleUpdate('productSeries', ns); }} className="text-xs font-bold border-b border-transparent focus:border-blue-500 outline-none text-center" />
+                                  <input value={series.name.en} onChange={e => { const ns = [...(data.productSeries||[])]; ns[idx].name.en = e.target.value; handleUpdate('productSeries', ns); }} className="text-[10px] text-gray-400 border-b border-transparent focus:border-blue-500 outline-none text-center" />
+                                </div>
+                                <button onClick={() => handleUpdate('productSeries', data.productSeries.filter(s => s.id !== series.id))} className="text-gray-300 hover:text-red-500"><Trash2 size={14}/></button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* ▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲ */}
                      <h3 className="text-xl font-bold text-gray-900 border-l-4 border-blue-500 pl-3">全量产品库</h3>
                      <button onClick={() => setEditingProduct({ 
                        id: `p${Date.now()}`, 
@@ -614,19 +847,44 @@ export const Admin: React.FC = () => {
                      })} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-md transition-all"><Plus size={20}/> 新增产品</button>
                    </div>
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                      {(data.products || []).map((p) => (
-                        <div key={p.id} className="p-5 border border-gray-100 rounded-[32px] bg-white group hover:border-blue-200 hover:shadow-xl transition-all">
-                          <div className="aspect-square rounded-2xl overflow-hidden mb-6 bg-gray-50 relative">
-                            <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                          </div>
-                          <h4 className="font-bold text-gray-900 mb-6 truncate">{t(p.name || { zh: '未命名', en: 'Unnamed' })}</h4>
-                          <div className="flex gap-2">
-                            <button onClick={() => setEditingProduct(p)} className="flex-1 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-600 hover:text-white transition-all">详细编辑</button>
-                            <button onClick={() => handleUpdate('products', data.products.filter(item => item.id !== p.id))} className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-600 rounded-xl transition-all"><Trash2 size={18}/></button>
+                    {/* 👇 注意这里加了 index 参数 */}
+                    {(data.products || []).map((p, index) => (
+                      <div key={p.id} className="p-5 border border-gray-100 rounded-[32px] bg-white group hover:border-blue-200 hover:shadow-xl transition-all flex flex-col">
+                        <div className="aspect-square rounded-2xl overflow-hidden mb-6 bg-gray-50 relative">
+                          <img src={p.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                          
+                          {/* ✨✨✨ 新增：悬浮在图片右上角的排序按钮 ✨✨✨ */}
+                          <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow-sm backdrop-blur-sm">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); moveProduct(index, 'up'); }} 
+                              disabled={index === 0}
+                              className={`p-1.5 rounded-md hover:bg-blue-100 text-blue-600 ${index === 0 ? 'text-gray-300 cursor-not-allowed' : ''}`}
+                              title="向前移动"
+                            >
+                              <ArrowUp size={16} />
+                            </button>
+                            <div className="h-[1px] bg-gray-200 w-full"></div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); moveProduct(index, 'down'); }} 
+                              disabled={index === (data.products?.length || 0) - 1}
+                              className={`p-1.5 rounded-md hover:bg-blue-100 text-blue-600 ${index === (data.products?.length || 0) - 1 ? 'text-gray-300 cursor-not-allowed' : ''}`}
+                              title="向后移动"
+                            >
+                              <ArrowDown size={16} />
+                            </button>
                           </div>
                         </div>
-                      ))}
-                   </div>
+
+      <h4 className="font-bold text-gray-900 mb-2 truncate">{t(p.name || { zh: '未命名', en: 'Unnamed' })}</h4>
+      <div className="text-xs text-gray-400 mb-4 font-mono">排序序号: {index + 1}</div>
+
+      <div className="mt-auto flex gap-2">
+        <button onClick={() => setEditingProduct(p)} className="flex-1 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-600 hover:text-white transition-all">详细编辑</button>
+        <button onClick={() => handleUpdate('products', data.products.filter(item => item.id !== p.id))} className="w-10 h-10 flex items-center justify-center bg-gray-50 text-gray-400 hover:text-red-600 rounded-xl transition-all"><Trash2 size={18}/></button>
+      </div>
+    </div>
+  ))}
+</div>
                  </>
                ) : (
                  <div className="space-y-10 animate-in fade-in duration-300">
@@ -639,6 +897,48 @@ export const Admin: React.FC = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                        <div className="space-y-8">
                           <div className="space-y-4">
+                            {/* ▼▼▼▼▼▼ 插入开始：产品系列选择器 ▼▼▼▼▼▼ */}
+                            <div className="bg-blue-50 p-5 rounded-2xl mb-8 border border-blue-100">
+                              <label className="block text-sm font-bold text-blue-800 uppercase mb-3">📂 所属系列 (多选)</label>
+                              
+                              {(!data.productSeries || data.productSeries.length === 0) ? (
+                                <div className="text-gray-400 text-sm">暂无系列，请先在上方“全量产品库”顶部新增系列</div>
+                              ) : (
+                                <div className="flex flex-wrap gap-3">
+                                  {data.productSeries.map(series => {
+                                    // 检查当前产品是否已选中该系列
+                                    const isSelected = (editingProduct.seriesIds || []).includes(series.id);
+                                    
+                                    return (
+                                      <button
+                                        key={series.id}
+                                        onClick={() => {
+                                          const currentIds = editingProduct.seriesIds || [];
+                                          let newIds;
+                                          if (isSelected) {
+                                            // 如果已选，点击则取消
+                                            newIds = currentIds.filter(id => id !== series.id);
+                                          } else {
+                                            // 如果未选，点击则添加
+                                            newIds = [...currentIds, series.id];
+                                          }
+                                          setEditingProduct({ ...editingProduct, seriesIds: newIds });
+                                        }}
+                                        className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all flex items-center gap-2 ${
+                                          isSelected 
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md' 
+                                            : 'bg-white text-gray-500 border-gray-200 hover:border-blue-400'
+                                        }`}
+                                      >
+                                        {isSelected ? <CheckCircle size={14} /> : <div className="w-3.5 h-3.5 rounded-full border border-gray-300" />}
+                                        {series.name.zh}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            {/* ▲▲▲▲▲▲ 插入结束 ▲▲▲▲▲▲ */}
                              <label className="block text-sm font-bold text-gray-700 uppercase">基础信息 (双语)</label>
                              <div className="grid grid-cols-2 gap-4">
                                <input value={editingProduct.name?.zh || ''} onChange={e => setEditingProduct({...editingProduct, name: {...(editingProduct.name || {zh:'',en:''}), zh: e.target.value}})} className="w-full p-4 border rounded-2xl outline-none focus:border-blue-500 shadow-sm" placeholder="产品名 (中)" />

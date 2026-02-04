@@ -2,7 +2,20 @@
 import { SiteData } from './types';
 
 export const INITIAL_DATA: SiteData = {
+  // ✨✨✨ 新增默认值
+  siteTitleSuffix: { zh: '广东康以泰生物科技有限公司', en: 'New Material Feed Tech' },
+  defaultLang: 'zh', // 默认中文
+
+  // ✨✨✨ 新增默认值
+  loadingText: { 
+    zh: '欢迎来到康以泰，饲料添加剂微量元素方案即刻展示...', 
+    en: 'Welcome to Kangyitai. Solutions for trace element feed additives are now on display...' 
+  },
+
   companyName: { zh: '新材料饲料科技有限公司', en: 'New Material Feed Tech Co., Ltd.' },
+  // ✨ 新增这行：
+  companyNameShort: { zh: '康以泰', en: 'Kangyitai' },
+
   logo: 'https://picsum.photos/id/101/200/60',
   copyright: { zh: '© 2024 新材料饲料科技有限公司 版权所有', en: '© 2024 New Material Feed Tech Co., Ltd. All rights reserved.' },
   followUs: {
@@ -51,6 +64,20 @@ export const INITIAL_DATA: SiteData = {
       { id: 'ev4', year: '2024', content: { zh: '扩展至全球市场。', en: 'Expanding into the global market.' } },
     ]
   },
+
+  // ✨✨✨ 新增默认值 ✨✨✨
+  aboutSlides: [
+    { id: '1', image: 'https://via.placeholder.com/800x600?text=Team1' },
+    { id: '2', image: 'https://via.placeholder.com/800x600?text=Team2' },
+  ],
+
+  // ✨✨✨ 新增：默认的三个系列
+  productSeries: [
+    { id: 's1', name: { zh: '硫酸盐系列', en: 'Sulfate Series' } },
+    { id: 's2', name: { zh: '混合饲料', en: 'Mixed Feed' } },
+    { id: 's3', name: { zh: '复合矿', en: 'Complex Minerals' } },
+  ],
+  
   honors: [
     { id: 'h1', name: { zh: '质量体系认证', en: 'Quality System Cert' }, image: 'https://picsum.photos/id/80/300/400' },
     { id: 'h2', name: { zh: '科技进步奖', en: 'Tech Progress Award' }, image: 'https://picsum.photos/id/81/300/400' },

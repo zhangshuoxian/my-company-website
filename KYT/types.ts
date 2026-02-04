@@ -59,10 +59,18 @@ export interface ProductDetailBlock {
   tableData?: CustomTableData;
 }
 
+// 1. 新增：产品系列类型
+export interface ProductSeries {
+  id: string;
+  name: { zh: string; en: string };
+}
+
 // --- 修改：更新后的产品接口 ---
 export interface Product {
   id: string;
   name: ContentItem;
+  // ✨✨✨ 新增：存放这个产品属于哪些系列的 ID (数组，因为可以属于多个)
+  seriesIds?: string[];
   image: string;
   images: string[];
   desc: ContentItem;
@@ -115,10 +123,25 @@ export interface SiteData {
   companyName: ContentItem;
   logo: string;
   copyright: ContentItem;
+
+  // ✨✨✨ 新增 1: 浏览器标题后缀 (例如: "广东康以泰...")
+  siteTitleSuffix: { zh: string; en: string };
+
+  // ✨✨✨ 新增 2: 默认语言设置 ('zh' 或 'en')
+  defaultLang: 'zh' | 'en';
+  
+  // ✨✨✨ 新增：关于我们页面的顶部轮播图 ✨✨✨
+  aboutSlides: { id: string; image: string }[];
   followUs: {
     qrCode: string;
     text: ContentItem;
   };
+  // ✨ 新增：公司简称 (专门给手机看)
+  companyNameShort?: { zh: string; en: string };
+  
+  // ✨✨✨ 新增：加载页面的欢迎语
+  loadingText: { zh: string; en: string };
+  
   heroSlides: HeroSlide[];
   labSection: {
     title: ContentItem;
@@ -141,6 +164,8 @@ export interface SiteData {
     events: HistoryEvent[];
   };
   honors: Honor[];
+  // ✨✨✨ 新增：全站的系列列表
+  productSeries: ProductSeries[];
   products: Product[];
   news: NewsItem[];
   contact: {

@@ -1,16 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAppContext } from '../AppContext';
-import { Search, Filter, Send, Layers, ArrowRight, Phone, Mail, CheckCircle2 } from 'lucide-react';
-import { generateCode, submitToCloud } from './captcha';
-import { CustomTableData } from '../types'; // <--- 新增这一行
+import { Search, Send, ArrowRight, Phone, Mail, CheckCircle2, Package, Menu, ChevronRight } from 'lucide-react';
+import { generateCode } from './captcha';
+import { CustomTableData } from '../types';
 
-
-// --- 新增：邮件发送接口 (请修改为你自己的邮箱) ---
+// --- 邮件发送接口 (保持你的原设置) ---
 const CLOUD_API_URL = "https://formsubmit.co/ajax/Business@kangyitai.com";
 
-// ▼▼▼▼▼▼▼▼▼▼ 在这里插入 CustomTableView 组件 ▼▼▼▼▼▼▼▼▼▼
+// ▼▼▼▼▼▼▼▼▼▼ CustomTableView 组件保持不变 ▼▼▼▼▼▼▼▼▼▼
 const CustomTableView: React.FC<{ data: CustomTableData; t: any }> = ({ data, t }) => {
   if (!data || !data.columns || data.columns.length === 0) return null;
   
@@ -39,141 +37,235 @@ const CustomTableView: React.FC<{ data: CustomTableData; t: any }> = ({ data, t 
     </div>
   );
 };
-// ▲▲▲▲▲▲▲▲▲▲ 插入结束 ▲▲▲▲▲▲▲▲▲▲
 
-// 头部 import 保持不变...
-// 确保这一行在顶部： import React, { useState, useEffect } from 'react'; 
-// 确保引入了 Search 图标： import { Search, ... } from 'lucide-react';
-
+// ▼▼▼▼▼▼▼▼▼▼ 产品列表页 (布局大改版：左侧导航 + 右侧列表) ▼▼▼▼▼▼▼▼▼▼
 const ProductGrid: React.FC = () => {
   const { data, t } = useAppContext();
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState(''); // 1. 新增：搜索词状态
+  const [searchQuery, setSearchQuery] = useState(''); 
+  const [activeSeriesId, setActiveSeriesId] = useState<string>('all');
   
-  const itemsPerPage = 12;
+  const itemsPerPage = 9;
 
-  // 2. 新增：过滤逻辑
-  // 这里的逻辑是：如果搜索词为空，显示所有；如果有搜索词，同时匹配中文名和英文名
+  // 过滤逻辑
   const filteredProducts = data.products.filter(p => {
-    if (!searchQuery) return true;
     const q = searchQuery.toLowerCase().trim();
-    return (
+    // 1. 搜索词匹配
+    const matchesSearch = !q || (
       p.name.zh.includes(q) || 
       p.name.en.toLowerCase().includes(q) ||
-      p.desc.zh.includes(q) || // 额外优化：也可以搜简介
+      p.desc.zh.includes(q) || 
       p.desc.en.toLowerCase().includes(q)
     );
+    // 2. 系列匹配 (兼容旧数据，如果没有 seriesIds 则视为不匹配特定系列，除非选了All)
+    const matchesSeries = activeSeriesId === 'all' || (p.seriesIds || []).includes(activeSeriesId);
+    return matchesSearch && matchesSeries;
   });
 
-  // 3. 新增：当搜索词变化时，自动回到第一页
+  // 切换分类或搜索时重置页码
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, activeSeriesId]);
 
-  // 计算总页数时，使用过滤后的数组长度
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-
+  
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 切片显示时，也使用过滤后的数组
   const displayedProducts = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  // 获取当前显示的标题
+  const currentCategoryName = activeSeriesId === 'all' 
+    ? { zh: '全部产品', en: 'All Products' }
+    : data.productSeries?.find(s => s.id === activeSeriesId)?.name;
+
   return (
-    <div className="py-24 max-w-7xl mx-auto px-4 bg-white reveal reveal-up active">
-      <div className="flex flex-col lg:flex-row justify-between items-center mb-16 gap-8 reveal reveal-left delay-200">
-        <div>
-          <h2 className="text-5xl font-black text-gray-900 tracking-tighter uppercase">{t({ zh: '全系产品矩阵', en: 'Product Matrix' })}</h2>
-          <div className="w-16 h-1.5 bg-blue-500 mt-5 rounded-full" />
-        </div>
-        <div className="flex gap-4 w-full lg:w-auto">
-          <div className="relative flex-1 lg:w-80">
-            {/* 4. 修改：绑定 value 和 onChange 实现搜索 */}
-            <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-6 py-4 bg-gray-50 border border-gray-100 focus:border-blue-500 rounded-2xl outline-none transition-all shadow-sm focus:bg-white" 
-              placeholder={t({ zh: '搜寻所需型号...', en: 'Search catalog...' })} 
-            />
-            {/* 5. 修改：图标位置修复，使用 top-1/2 -translate-y-1/2 实现绝对垂直居中 */}
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-          </div>
-          <button className="flex items-center gap-2 px-8 py-4 bg-white border border-gray-100 text-gray-600 rounded-2xl font-black hover:bg-gray-50 transition-all shadow-sm">
-            <Filter size={18} /> {t({ zh: '分类', en: 'Sort' })}
-          </button>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* 顶部 Banner (简单装饰) */}
+      <div className="h-64 bg-blue-900 relative overflow-hidden flex items-center justify-center">
+        <div className="absolute inset-0 bg-blue-800 opacity-50 mix-blend-multiply"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-500/20 to-transparent"></div>
+        <div className="relative z-10 text-center">
+            <h1 className="text-4xl md:text-5xl font-black text-white tracking-wider uppercase mb-2">
+            {t({ zh: '产品中心', en: 'Product Center' })}
+            </h1>
+            <p className="text-blue-200 text-sm tracking-widest uppercase">Innovation & Quality</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-        {/* 6. 新增：如果没有搜索结果的提示 */}
-        {displayedProducts.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-gray-400">
-            <p className="text-xl font-bold mb-2">{t({ zh: '未找到相关产品', en: 'No products found' })}</p>
-            <p className="text-sm">{t({ zh: '请尝试更换搜索关键词', en: 'Try a different keyword' })}</p>
-          </div>
-        ) : (
-          displayedProducts.map((p, i) => (
-            <Link 
-              to={`/products/${p.id}`} 
-              key={p.id} 
-              className="group block bg-white rounded-[3rem] overflow-hidden shadow-sm hover:shadow-2xl border border-gray-50 transition-all duration-500 transform hover:-translate-y-2 reveal reveal-up active"
-              // 移除 delay 以防止搜索时动画滞后感太强，或者保留基本 delay
-              style={{ animationDelay: `${(i % 4) * 100}ms` }}
-            >
-              <div className="aspect-square overflow-hidden bg-gray-100 relative">
-                <img 
-                  src={p.image} 
-                  alt={t(p.name)} 
-                  className="w-full h-full object-cover transition-transform duration-[1.5s] group-hover:scale-110" 
-                />
-                <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/10 transition-colors duration-500"></div>
-              </div>
-              <div className="p-8">
-                <h3 className="font-black text-xl text-gray-900 mb-3 line-clamp-1">{t(p.name)}</h3>
-                <p className="text-gray-400 text-sm line-clamp-2 mb-8 font-bold leading-relaxed">{t(p.desc)}</p>
-                <div className="flex justify-between items-center">
-                  <span className="text-blue-600 font-black text-sm tracking-widest uppercase">{t({ zh: '立即了解', en: 'Details' })}</span>
-                  <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 opacity-0 group-hover:opacity-100 transition-all transform -translate-x-4 group-hover:translate-x-0">
-                    <ArrowRight size={20} />
-                  </div>
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="flex flex-col lg:flex-row gap-10">
+          
+          {/* ▼▼▼▼▼▼ 左侧侧边栏 (Sidebar) ▼▼▼▼▼▼ */}
+          <aside className="w-full lg:w-72 shrink-0 space-y-8 animate-in fade-in slide-in-from-left-4 duration-500">
+             <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+                <div className="bg-blue-600 text-white p-6">
+                   <h2 className="text-lg font-bold flex items-center gap-2">
+                     <Menu size={20} />
+                     {t({ zh: '产品分类', en: 'Categories' })}
+                   </h2>
                 </div>
-              </div>
-            </Link>
-          ))
-        )}
-      </div>
+                
+                <div className="flex flex-col py-2">
+                   {/* 全部产品按钮 */}
+                   <button
+                      onClick={() => setActiveSeriesId('all')}
+                      className={`text-left px-6 py-4 font-bold text-sm border-l-4 transition-all flex justify-between items-center group ${
+                         activeSeriesId === 'all' 
+                           ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
+                           : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-blue-500'
+                      }`}
+                   >
+                      {t({ zh: '全部产品', en: 'All Products' })}
+                      <ChevronRight size={16} className={`transition-transform ${activeSeriesId === 'all' ? 'text-blue-600' : 'text-gray-300 group-hover:text-blue-400'}`} />
+                   </button>
 
-      {/* Pagination (仅当页数大于1时显示) */}
-      {totalPages > 1 && (
-        <div className="mt-24 flex justify-center gap-3 reveal reveal-up active delay-300">
-          {Array.from({ length: totalPages }, (_, i) => (
-            <button
-              key={i + 1}
-              onClick={() => handlePageChange(i + 1)}
-              className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black transition-all ${
-                currentPage === i + 1 ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30' : 'bg-gray-100 text-gray-400 hover:bg-gray-200 shadow-sm'
-              }`}
-            >
-              {i + 1}
-            </button>
-          ))}
+                   {/* 动态系列按钮 */}
+                   {(data.productSeries || []).map(series => (
+                      <button
+                        key={series.id}
+                        onClick={() => setActiveSeriesId(series.id)}
+                        className={`text-left px-6 py-4 font-bold text-sm border-l-4 transition-all flex justify-between items-center group ${
+                           activeSeriesId === series.id 
+                             ? 'border-blue-600 text-blue-600 bg-blue-50/50' 
+                             : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-blue-500'
+                        }`}
+                      >
+                         {t(series.name)}
+                         <ChevronRight size={16} className={`transition-transform ${activeSeriesId === series.id ? 'text-blue-600' : 'text-gray-300 group-hover:text-blue-400'}`} />
+                      </button>
+                   ))}
+                </div>
+             </div>
+
+             {/* 侧边栏：联系方式卡片 */}
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hidden lg:block">
+                <h3 className="font-bold text-gray-900 mb-4 pb-4 border-b border-gray-100">{t({ zh: '联系我们', en: 'Contact Us' })}</h3>
+                <div className="space-y-4 text-sm text-gray-600">
+                   <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0"><Phone size={16}/></div>
+                      <span>{t(data.contact.phone)}</span>
+                   </div>
+                   <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0"><Mail size={16}/></div>
+                      <span className="break-all">{t(data.contact.email)}</span>
+                   </div>
+                </div>
+             </div>
+          </aside>
+
+          {/* ▼▼▼▼▼▼ 右侧内容区 (Main Content) ▼▼▼▼▼▼ */}
+          <main className="flex-1 min-w-0">
+             {/* 顶部工具条：标题 + 搜索 */}
+             <div className="flex flex-col md:flex-row justify-between items-end border-b border-gray-200 pb-5 mb-8 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                <div>
+                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 block">{t({ zh: '当前查看', en: 'Current View' })}</span>
+                   <h2 className="text-3xl font-black text-gray-900 flex items-center gap-3">
+                      {t(currentCategoryName || { zh: '产品列表', en: 'Products' })}
+                      <span className="text-sm font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-md">{filteredProducts.length}</span>
+                   </h2>
+                </div>
+                
+                <div className="relative w-full md:w-72">
+                   <input 
+                     type="text" 
+                     value={searchQuery}
+                     onChange={(e) => setSearchQuery(e.target.value)}
+                     className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:border-blue-600 focus:ring-4 focus:ring-blue-50 outline-none transition-all" 
+                     placeholder={t({ zh: '输入关键词搜索...', en: 'Search products...' })} 
+                   />
+                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                </div>
+             </div>
+
+             {/* 产品网格 (3列布局) */}
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {displayedProducts.length === 0 ? (
+                   <div className="col-span-full py-24 text-center text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                      <Package size={48} className="mx-auto mb-4 opacity-20 text-blue-500"/>
+                      <p className="text-lg font-bold text-gray-600">{t({ zh: '暂无相关产品', en: 'No products found' })}</p>
+                      <p className="text-sm mt-2">{t({ zh: '请尝试切换分类或搜索其他关键词', en: 'Try changing category or search keyword' })}</p>
+                   </div>
+                ) : (
+                   displayedProducts.map((p, i) => (
+                      <Link 
+                        to={`/products/${p.id}`} 
+                        key={p.id} 
+                        className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100 transition-all duration-300 flex flex-col hover:-translate-y-1"
+                      >
+                         <div className="aspect-[4/3] bg-gray-100 relative overflow-hidden">
+                            <img 
+                               src={p.image} 
+                               alt={t(p.name)} 
+                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+                            />
+                            {/* 悬浮标签 */}
+                            <div className="absolute top-3 left-3 flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                               {(p.seriesIds || []).map(sid => {
+                                  const sName = data.productSeries?.find(s => s.id === sid)?.name;
+                                  return sName ? (
+                                    <span key={sid} className="bg-white/90 backdrop-blur text-blue-800 text-[10px] font-bold px-2 py-1 rounded shadow-sm border border-blue-100">
+                                       {t(sName)}
+                                    </span>
+                                  ) : null;
+                               })}
+                            </div>
+                         </div>
+                         
+                         <div className="p-5 flex flex-col flex-1">
+                            <h3 className="font-bold text-gray-900 text-lg mb-2 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                               {t(p.name)}
+                            </h3>
+                            <p className="text-gray-500 text-sm line-clamp-2 mb-4 flex-1">
+                               {t(p.desc)}
+                            </p>
+                            
+                            <div className="pt-4 border-t border-gray-50 flex justify-between items-center mt-auto">
+                               <span className="text-xs text-blue-600 font-bold uppercase tracking-wider">{t({ zh: '查看详情', en: 'View Details' })}</span>
+                               <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                                  <ArrowRight size={14} />
+                               </div>
+                            </div>
+                         </div>
+                      </Link>
+                   ))
+                )}
+             </div>
+
+             {/* 分页组件 */}
+             {totalPages > 1 && (
+                <div className="mt-12 flex justify-center gap-2">
+                   {Array.from({ length: totalPages }, (_, i) => (
+                      <button
+                         key={i + 1}
+                         onClick={() => handlePageChange(i + 1)}
+                         className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all ${
+                            currentPage === i + 1 
+                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                              : 'bg-white text-gray-500 hover:bg-gray-50 border border-gray-200'
+                         }`}
+                      >
+                         {i + 1}
+                      </button>
+                   ))}
+                </div>
+             )}
+          </main>
         </div>
-      )}
+      </div>
     </div>
   );
 };
 
+// ▼▼▼▼▼▼▼▼▼▼ ProductDetail 保持不变 (完全复用你原来的) ▼▼▼▼▼▼▼▼▼▼
 const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
   const { data, t, addMessage } = useAppContext();
   const product = data.products.find(p => p.id === id);
   const [mainImg, setMainImg] = useState(product?.image || '');
   const [activeFeatIdx, setActiveFeatIdx] = useState(0);
   const [formMsg, setFormMsg] = useState('');
-
-
 
   const [captcha, setCaptcha] = useState(generateCode());
   const [userAns, setUserAns] = useState('');
@@ -294,9 +386,7 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
         </div>
       </section>
             
-      {/* --- 新增：质量标准 & 详细图文展示 --- */}
-      
-      {/* 1. 质量指标板块 (支持 简单表格 / 自定义表格 / 图片) */}
+      {/* 1. 质量指标板块 */}
       <section className="py-20 max-w-7xl mx-auto px-4 reveal reveal-up">
          <div className="flex items-center gap-4 mb-10">
             <div className="w-1.5 h-8 bg-blue-600 rounded-full"></div>
@@ -306,19 +396,14 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
          
          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 items-start">
             <div className="lg:col-span-2">
-                {/* 模式 A: 图片 */}
                 {product.standardsType === 'image' && product.standardsImage && (
                     <div className="rounded-3xl overflow-hidden shadow-lg border border-gray-100 bg-white">
                        <img src={product.standardsImage} alt="Standards" className="w-full h-auto object-contain" />
                     </div>
                 )}
-
-                {/* 模式 B: 自定义多列表格 (新增) */}
                 {product.standardsType === 'custom_table' && product.standardsTable && (
                     <CustomTableView data={product.standardsTable} t={t} />
                 )}
-
-                {/* 模式 C: 简单两列 (默认兼容旧数据) */}
                 {(!product.standardsType || product.standardsType === 'simple') && (product.standards && product.standards.length > 0) && (
                     <div className="overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
                         <table className="w-full text-left">
@@ -340,8 +425,6 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
                     </div>
                 )}
             </div>
-
-            {/* 右侧说明文案 */}
             <div className="space-y-6">
                 <div className="bg-blue-50/50 p-8 rounded-[2rem] border border-blue-100">
                     <h3 className="font-bold text-xl text-blue-900 mb-4">{t({ zh: '品质承诺', en: 'Quality Commitment' })}</h3>
@@ -353,12 +436,10 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
          </div>
       </section>
 
-      {/* 2. 深度详情板块 (统一使用 Zig-Zag 布局，无论是图片还是表格) */}
+      {/* 2. 深度详情板块 */}
       {(product.detailBlocks || []).map((block, idx) => (
          <section key={block.id} className="py-20 max-w-7xl mx-auto px-4 reveal reveal-up">
             <div className={`flex flex-col lg:flex-row gap-16 items-center ${idx % 2 !== 0 ? 'lg:flex-row-reverse' : ''}`}>
-               
-               {/* 统一的文字区域 (左或右) */}
                <div className="flex-1 space-y-6">
                   <div className="inline-block bg-gray-100 px-3 py-1 rounded text-xs font-black text-gray-400 uppercase tracking-widest mb-2">
                      {block.type === 'table' ? 'Data Analysis' : `Feature 0${idx + 1}`}
@@ -369,26 +450,19 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
                      {t(block.content || { zh: '', en: '' })}
                   </p>
                </div>
-               
-               {/* 内容区域 (右或左) */}
                <div className="flex-1 w-full">
                   {block.type === 'table' ? (
-                      /* 情况 A: 显示表格 */
                       block.tableData && <CustomTableView data={block.tableData} t={t} />
                   ) : (
-                      /* 情况 B: 显示图片 (默认) */
                       <div className="relative aspect-[4/3] rounded-[3rem] overflow-hidden shadow-2xl border-[8px] border-white bg-gray-50 group">
                          <img src={block.image} alt="" className="w-full h-full object-cover transition-transform duration-[1.5s] group-hover:scale-105" />
                          <div className="absolute inset-0 bg-blue-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                       </div>
                   )}
                </div>
-
             </div>
          </section>
       ))}
-
-      {/* --- 新增结束 --- */}
 
       {/* 底部表单 */}
       <section className="py-24 bg-gray-50 reveal reveal-up">
@@ -430,7 +504,6 @@ const ProductDetail: React.FC<{ id: string }> = ({ id }) => {
                    </div>
                 </div>
                 {formMsg && <p className="mb-6 text-center font-black text-blue-600 text-lg uppercase animate-pulse">{formMsg}</p>}
-                {/* 验证码 - 升级版 */}
                 <div className="mb-6 bg-white p-4 rounded-2xl flex items-center gap-4 border border-gray-100 shadow-sm">
                    <span className="font-black text-gray-500 text-sm hidden sm:block">安全验证:</span>
                    <div 

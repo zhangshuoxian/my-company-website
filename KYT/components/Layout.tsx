@@ -18,37 +18,58 @@ const Header: React.FC = () => {
     { name: { zh: '联系我们', en: 'Contact' }, path: '/contact' },
   ];
 
-  // 核心：全局搜索逻辑
+  // 核心：全局搜索逻辑 (修改版：支持搜索表格、参数、CAS号等)
   const searchResults = React.useMemo(() => {
+    // 1. 如果没输入，或者只输了空格，就返回空
     if (!searchKw.trim()) return [];
-    const q = searchKw.toLowerCase();
-    const results = [];
+    
+    const q = searchKw.toLowerCase().trim();
+    const results: any[] = []; // 临时存放结果
 
-    // 1. 搜产品
-    data.products.forEach(p => {
-      if (t(p.name).toLowerCase().includes(q) || t(p.desc).toLowerCase().includes(q)) {
-        results.push({ 
-          type: 'product', 
-          id: p.id, 
-          title: t(p.name), 
-          desc: t(p.desc),
-          path: `/products/${p.id}` 
-        });
-      }
-    });
+    // --- 🔍 1. 搜产品 (升级版) ---
+    if (data.products) {
+      data.products.forEach(p => {
+        // ✨ 黑科技：把整个产品数据(包括表格、参数、名字)变成一长串文字
+        // 这样用户搜 "99%"、"白色粉末"、"CAS号" 都能匹配到
+        const allProductText = JSON.stringify(p).toLowerCase();
 
-    // 2. 搜新闻
-    data.news.forEach(n => {
-      if (t(n.title).toLowerCase().includes(q) || t(n.summary).toLowerCase().includes(q)) {
-        results.push({ 
-          type: 'news', 
-          id: n.id, 
-          title: t(n.title), 
-          desc: t(n.summary),
-          path: `/news/${n.id}` 
-        });
-      }
-    });
+        // 只要 名字匹配 OR 描述匹配 OR 整个数据包里包含关键词
+        if (
+          t(p.name).toLowerCase().includes(q) || 
+          t(p.desc).toLowerCase().includes(q) || 
+          allProductText.includes(q) // 👈 这行代码让你能搜到表格里的内容
+        ) {
+          results.push({ 
+            type: 'product', 
+            id: p.id, 
+            title: t(p.name), 
+            desc: t(p.desc) || (lang === 'zh' ? '查看产品详情...' : 'View Details'),
+            path: `/products/${p.id}` 
+          });
+        }
+      });
+    }
+
+    // --- 📰 2. 搜新闻 (升级版) ---
+    if (data.news) {
+      data.news.forEach(n => {
+        const allNewsText = JSON.stringify(n).toLowerCase();
+
+        if (
+          t(n.title).toLowerCase().includes(q) || 
+          t(n.summary).toLowerCase().includes(q) ||
+          allNewsText.includes(q) // 让新闻里的详细内容也能被搜到
+        ) {
+          results.push({ 
+            type: 'news', 
+            id: n.id, 
+            title: t(n.title), 
+            desc: t(n.summary),
+            path: `/news/${n.id}` 
+          });
+        }
+      });
+    }
 
     return results;
   }, [searchKw, data, lang, t]);
@@ -65,9 +86,20 @@ const Header: React.FC = () => {
         {/* Left: Logo */}
         <Link to="/" className="flex items-center gap-3 group">
           <img src={data.logo} alt="Logo" className="h-10 w-auto transition-transform group-hover:scale-105" />
-          <span className="font-bold text-xl text-blue-800 hidden lg:block tracking-tight">
-            {t(data.companyName)}
-          </span>
+          {/* --- 修改开始：手机/电脑自适应名称 --- */}
+          <div className="flex flex-col justify-center">
+            {/* 🅰️ 手机版 (md:hidden)：只显示简称 */}
+            <span className="md:hidden font-bold text-lg text-blue-800 tracking-tight leading-tight">
+              {/* 如果后台填了简称就用简称，没填就用全称兜底 */}
+              {data.companyNameShort ? t(data.companyNameShort) : t(data.companyName)}
+            </span>
+
+            {/* 🅱️ 电脑版 (md:block)：只显示全称 */}
+            <span className="hidden md:block font-bold text-xl text-blue-800 tracking-tight leading-tight">
+              {t(data.companyName)}
+            </span>
+          </div>
+          {/* --- 修改结束 --- */}
         </Link>
 
         {/* Center: Nav */}
@@ -253,18 +285,71 @@ const Footer: React.FC = () => {
   );
 };
 
+// ▼▼▼▼▼▼▼▼▼▼ 修改 Layout 组件 (Header 和 Footer 不用动) ▼▼▼▼▼▼▼▼▼▼
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  
+  // 1. ✨✨✨ 新增：我们需要获取全局数据 (data) 和语言 (lang) ✨✨✨
+  const { data, t, lang } = useAppContext(); 
+  
   const isAdminPage = location.pathname.startsWith('/admin');
 
-  // ----------- 这里是你新增的代码 Start -----------
+  // ----------- 滚动重置 (保持你原有的代码) -----------
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
-  // ----------- 这里是你新增的代码 End   -----------
 
+  // ▼▼▼▼▼▼ 2. ✨✨✨ 新增：动态浏览器标题逻辑 ✨✨✨ ▼▼▼▼▼▼
   useEffect(() => {
-    // 滚动入场监听逻辑
+    // A. 定义静态页面的标题
+    const pageTitles: Record<string, { zh: string; en: string }> = {
+      '/': { zh: '首页', en: 'Home' },
+      '/about': { zh: '关于我们', en: 'About Us' },
+      '/products': { zh: '产品中心', en: 'Products' },
+      '/news': { zh: '新闻动态', en: 'News' },
+      '/contact': { zh: '联系我们', en: 'Contact' },
+      '/login': { zh: '管理员登录', en: 'Admin Login' },
+    };
+
+    // B. 计算当前页面的主标题
+    let currentTitle = '';
+    
+    // 情况1: 静态页面 (如首页、关于)
+    if (pageTitles[location.pathname]) {
+        currentTitle = t(pageTitles[location.pathname]);
+    } 
+    // 情况2: 产品详情页 (如 /products/p123)
+    else if (location.pathname.startsWith('/products/')) {
+        const id = location.pathname.split('/products/')[1];
+        const product = data.products.find(p => p.id === id);
+        // 如果找到了产品就用产品名，没找到就用通用标题
+        currentTitle = product ? t(product.name) : (lang === 'zh' ? '产品详情' : 'Product Details');
+    }
+    // 情况3: 新闻详情页
+    else if (location.pathname.startsWith('/news/')) {
+        const id = location.pathname.split('/news/')[1];
+        const news = data.news.find(n => n.id === id);
+        currentTitle = news ? t(news.title) : (lang === 'zh' ? '新闻详情' : 'News Details');
+    }
+    // 情况4: 其他未知页面
+    else {
+        currentTitle = lang === 'zh' ? '详情' : 'Details';
+    }
+
+    // C. 获取标题后缀 (优先用后台配置的，如果没有就用默认的)
+    // 注意：请确保你在 Admin.tsx 和 types.ts 里已经加了 siteTitleSuffix 字段
+    const suffix = data.siteTitleSuffix 
+        ? t(data.siteTitleSuffix) 
+        : (lang === 'zh' ? '广东康以泰生物科技有限公司' : 'New Material Feed Tech');
+
+    // D. 最终修改浏览器标题
+    document.title = `${currentTitle} - ${suffix}`;
+
+  }, [location.pathname, lang, data, t]);
+  // ▲▲▲▲▲▲ 新增结束 ▲▲▲▲▲▲
+
+  // ----------- 滚动动画 (保持你原有的代码) -----------
+  useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -280,7 +365,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
     observeElements();
 
-    // 使用 MutationObserver 监听 DOM 变化（如分页加载新内容）
     const mutationObserver = new MutationObserver(() => {
       observeElements();
     });
