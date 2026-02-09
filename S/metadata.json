@@ -1,0 +1,7 @@
+{
+  "name": "SmartFlow WMS - 智流仓管系统",
+  "description": "一个现代化、智能化的仓库出入库管理系统，具备库存监控、智能预警、数据可视化及 AI 辅助分析功能。",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
